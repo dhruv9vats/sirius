@@ -1,5 +1,7 @@
 use quent_model::{instrumentation, model};
 
+pub mod data_batch;
+
 model! {
     Sirius {
         root: quent_query_engine_model::engine::Engine,
@@ -9,10 +11,15 @@ model! {
         quent_query_engine_model::plan::Plan,
         quent_query_engine_model::operator::Operator,
         quent_query_engine_model::port::Port,
+        quent_stdlib::channel::Channel,
+        quent_stdlib::memory::Memory,
+        data_batch::DataBatch,
     }
 }
 
 instrumentation!(Sirius);
 
 // Re-export query engine model modules for bridge codegen
+pub use data_batch::DataBatch;
 pub use quent_query_engine_model::{engine, operator, plan, port, query, query_group, worker};
+pub use quent_stdlib::{channel, memory};
