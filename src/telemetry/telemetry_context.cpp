@@ -17,11 +17,12 @@
 #include "telemetry/telemetry_context.hpp"
 
 #include "config.hpp"
+#include "cucascade/memory/common.hpp"
 #include "log/logging.hpp"
 #include "op/sirius_physical_delim_join.hpp"
 #include "op/sirius_physical_operator.hpp"
 #include "pipeline/sirius_pipeline.hpp"
-#include "telemetry-bridge/gen/custom_attributes.rs.h"
+#include "telemetry-bridge/gen/channel.rs.h"
 #include "telemetry-bridge/gen/operator.rs.h"
 #include "telemetry-bridge/gen/plan.rs.h"
 #include "telemetry-bridge/gen/port.rs.h"
@@ -41,7 +42,70 @@ telemetry_context::telemetry_context(std::optional<std::string> query_label)
                                    duckdb::Config::QUENT_OUTPUT_DIRECTORY)),
     engine_observer_(quent::engine::create_observer(*context_)),
     worker_observer_(quent::worker::create_observer(*context_)),
-    query_label_(std::move(query_label))
+    query_label_(std::move(query_label)),
+    storage_memory_handle_(quent::memory::create(*context_,
+                                                 {
+                                                   .instance_name   = "storage",
+                                                   .parent_group_id = engine_uuid_,
+                                                 })),
+    host_memory_handle_(quent::memory::create(*context_,
+                                              {
+                                                .instance_name   = "host",
+                                                .parent_group_id = engine_uuid_,
+                                              })),
+    device_memory_handle_(quent::memory::create(*context_,
+                                                {
+                                                  .instance_name   = "device",
+                                                  .parent_group_id = engine_uuid_,
+                                                })),
+    storage_to_host_channel_handle_(
+      quent::channel::create(*context_,
+                             {
+                               .instance_name   = "storage_to_host",
+                               .parent_group_id = engine_uuid_,
+                               .source_id       = storage_memory_handle_->uuid(),
+                               .target_id       = host_memory_handle_->uuid(),
+                             })),
+    storage_to_device_channel_handle_(
+      quent::channel::create(*context_,
+                             {
+                               .instance_name   = "storage_to_device",
+                               .parent_group_id = engine_uuid_,
+                               .source_id       = storage_memory_handle_->uuid(),
+                               .target_id       = device_memory_handle_->uuid(),
+                             })),
+    host_to_device_channel_handle_(
+      quent::channel::create(*context_,
+                             {
+                               .instance_name   = "host_to_device",
+                               .parent_group_id = engine_uuid_,
+                               .source_id       = host_memory_handle_->uuid(),
+                               .target_id       = device_memory_handle_->uuid(),
+                             })),
+    host_to_storage_channel_handle_(
+      quent::channel::create(*context_,
+                             {
+                               .instance_name   = "host_to_storage",
+                               .parent_group_id = engine_uuid_,
+                               .source_id       = host_memory_handle_->uuid(),
+                               .target_id       = storage_memory_handle_->uuid(),
+                             })),
+    device_to_storage_channel_handle_(
+      quent::channel::create(*context_,
+                             {
+                               .instance_name   = "device_to_storage",
+                               .parent_group_id = engine_uuid_,
+                               .source_id       = device_memory_handle_->uuid(),
+                               .target_id       = storage_memory_handle_->uuid(),
+                             })),
+    device_to_host_channel_handle_(
+      quent::channel::create(*context_,
+                             {
+                               .instance_name   = "device_to_host",
+                               .parent_group_id = engine_uuid_,
+                               .source_id       = device_memory_handle_->uuid(),
+                               .target_id       = host_memory_handle_->uuid(),
+                             }))
 {
   const std::string& engine_name = duckdb::Config::QUENT_ENGINE_NAME;
 
@@ -69,6 +133,106 @@ telemetry_context::~telemetry_context()
 {
   worker_observer_->exit(worker_uuid_);
   engine_observer_->exit(engine_uuid_);
+
+  storage_memory_handle_->exit();
+  host_memory_handle_->exit();
+  device_memory_handle_->exit();
+
+  storage_to_host_channel_handle_->exit();
+  storage_to_device_channel_handle_->exit();
+  host_to_device_channel_handle_->exit();
+  host_to_storage_channel_handle_->exit();
+  device_to_host_channel_handle_->exit();
+  device_to_storage_channel_handle_->exit();
+}
+
+const quent::memory::MemoryHandle& telemetry_context::memory_handle(
+  const cucascade::memory::memory_space_id memory_space) const
+{
+  switch (memory_space.tier) {
+    case cucascade::memory::Tier::GPU: {
+      // TODO: only switching based on tier for now, once we go multi-gpu
+      // we would need to switch over memory_space.device_id too.
+      return *device_memory_handle_;
+    }
+    case cucascade::memory::Tier::HOST: {
+      return *host_memory_handle_;
+    }
+    case cucascade::memory::Tier::DISK: {
+      return *storage_memory_handle_;
+    }
+    case cucascade::memory::Tier::SIZE: {
+      throw std::invalid_argument("Tier::SIZE is not a valid tier");
+    }
+  }
+
+  throw std::invalid_argument("Invalid Tier");
+}
+
+const quent::channel::ChannelHandle& telemetry_context::channel_handle(
+  const cucascade::memory::memory_space_id source_memory_space,
+  const cucascade::memory::memory_space_id target_memory_space) const
+{
+  switch (source_memory_space.tier) {
+    case cucascade::memory::Tier::GPU: {
+      switch (target_memory_space.tier) {
+        case cucascade::memory::Tier::GPU: {
+          // TODO: only switching based on tier for now, once we go multi-gpu
+          // we would need to switch over memory_space.device_id too.
+          throw std::invalid_argument(
+            "No channel handle exists for source and target both being GPU");
+        }
+        case cucascade::memory::Tier::HOST: {
+          return *device_to_host_channel_handle_;
+        }
+        case cucascade::memory::Tier::DISK: {
+          return *device_to_storage_channel_handle_;
+        }
+        case cucascade::memory::Tier::SIZE: {
+          throw std::invalid_argument("Tier::SIZE is not a valid source tier");
+        }
+      }
+    }
+    case cucascade::memory::Tier::HOST: {
+      switch (target_memory_space.tier) {
+        case cucascade::memory::Tier::GPU: {
+          return *host_to_device_channel_handle_;
+        }
+        case cucascade::memory::Tier::HOST: {
+          throw std::invalid_argument(
+            "No channel handle exists for source and target both being HOST");
+        }
+        case cucascade::memory::Tier::DISK: {
+          return *host_to_storage_channel_handle_;
+        }
+        case cucascade::memory::Tier::SIZE: {
+          throw std::invalid_argument("Tier::SIZE is not a valid source tier");
+        }
+      }
+    }
+    case cucascade::memory::Tier::DISK: {
+      switch (target_memory_space.tier) {
+        case cucascade::memory::Tier::GPU: {
+          return *storage_to_device_channel_handle_;
+        }
+        case cucascade::memory::Tier::HOST: {
+          return *storage_to_host_channel_handle_;
+        }
+        case cucascade::memory::Tier::DISK: {
+          throw std::invalid_argument(
+            "No channel handle exists for source and target both being DISK");
+        }
+        case cucascade::memory::Tier::SIZE: {
+          throw std::invalid_argument("Tier::SIZE is not a valid source tier");
+        }
+      }
+    }
+    case cucascade::memory::Tier::SIZE: {
+      throw std::invalid_argument("Tier::SIZE is not a valid source tier");
+    }
+  }
+
+  throw std::invalid_argument("Invalid Tiers");
 }
 
 void emit_plan_telemetry(

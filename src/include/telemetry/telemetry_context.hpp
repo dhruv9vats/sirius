@@ -16,9 +16,13 @@
 
 #pragma once
 
+#include "cucascade/data/data_batch.hpp"
+#include "cucascade/memory/common.hpp"
 #include "duckdb/common/common.hpp"
+#include "telemetry-bridge/gen/channel.rs.h"
 #include "telemetry-bridge/gen/context.rs.h"
 #include "telemetry-bridge/gen/engine.rs.h"
+#include "telemetry-bridge/gen/memory.rs.h"
 #include "telemetry-bridge/gen/uuid.rs.h"
 #include "telemetry-bridge/gen/worker.rs.h"
 
@@ -48,6 +52,13 @@ class telemetry_context {
   [[nodiscard]] const quent::Context& context() const { return *context_; }
   [[nodiscard]] const std::optional<std::string>& query_label() const { return query_label_; }
 
+  [[nodiscard]] const quent::memory::MemoryHandle& memory_handle(
+    const cucascade::memory::memory_space_id memory_space) const;
+
+  [[nodiscard]] const quent::channel::ChannelHandle& channel_handle(
+    const cucascade::memory::memory_space_id source_memory_space,
+    const cucascade::memory::memory_space_id target_memory_space) const;
+
  private:
   uuid::UUID engine_uuid_;
   uuid::UUID worker_uuid_;
@@ -55,6 +66,21 @@ class telemetry_context {
   rust::Box<quent::engine::EngineObserver> engine_observer_;
   rust::Box<quent::worker::WorkerObserver> worker_observer_;
   std::optional<std::string> query_label_;
+
+  // memory handles
+  rust::Box<quent::memory::MemoryHandle> storage_memory_handle_;
+  rust::Box<quent::memory::MemoryHandle> host_memory_handle_;
+  rust::Box<quent::memory::MemoryHandle> device_memory_handle_;
+
+  // channel handles
+  rust::Box<quent::channel::ChannelHandle> storage_to_host_channel_handle_;
+  rust::Box<quent::channel::ChannelHandle> storage_to_device_channel_handle_;
+
+  rust::Box<quent::channel::ChannelHandle> host_to_device_channel_handle_;
+  rust::Box<quent::channel::ChannelHandle> host_to_storage_channel_handle_;
+
+  rust::Box<quent::channel::ChannelHandle> device_to_host_channel_handle_;
+  rust::Box<quent::channel::ChannelHandle> device_to_storage_channel_handle_;
 };
 
 // A POD to hold common identifiers for useful telemetry.
@@ -178,6 +204,7 @@ void emit_plan_telemetry(
 //           });
 //         break;
 //     }
+//     quent::channel::create(const int &ctx, ::quent::channel::Initializing data)
 //   }
 
 //  private:
