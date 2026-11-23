@@ -423,13 +423,15 @@ sirius:
     scan_manager:
       uring:
         reactors_per_gpu: 0
+        numa_local_staging: false
         slices_per_pass: 4
         range_batch_slices: 8
 ```
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `reactors_per_gpu` | int (**>= 0**) | 0 | `0` keeps `uring_n_reactors` shared. A positive value creates that many reactors per configured GPU and routes its device reads only to those reactors. With no configured GPUs, the shared pool remains in use. Host-only reads can use all reactors. This does not bind CPU threads or change the NUMA placement of pinned staging buffers. |
+| `reactors_per_gpu` | int (**>= 0**) | 0 | `0` keeps `uring_n_reactors` shared. A positive value creates that many reactors per configured GPU and routes its device reads only to those reactors. With no configured GPUs, the shared pool remains in use. Host-only reads can use all reactors. This does not bind CPU threads. |
+| `numa_local_staging` | bool | false | With `reactors_per_gpu > 0`, allocate each GPU's reactor staging buffers from the HOST pool for its NUMA node. Unknown locality or a missing HOST pool falls back to the first HOST pool. Pools must use the same block size. This does not change thread affinity or request routing. |
 | `n_max_concurrent_scans` | int (**>= 0**) | `pipeline.num_threads` | Readahead budget the local backend publishes, which an unset `max_readahead_scans` defers to. Unset derives it as the pipeline pool size (one scan per pipeline thread); under `opportunistic`, the default for local reads, the pipeline width is the budget the readahead schedules against. An explicit value wins, and an explicit `0` keeps the readahead off for local reads. An explicit `max_readahead_scans` overrides it. |
 | `slices_per_pass` | int (**0..64**) | 4 | Most slices of the active request a reactor turns into physical reads per loop pass before it waits for a completion. A reactor works through one request at a time, in queue order; the default `4` keeps a single many-slice request (a whole-split prefetch, a wide demand read) deep — up to 4 slices per pass, bounded by the reactor's free staging slots — without letting one pass claim every free slot. `0` = no cap: keep going while every planned read finds a free staging slot (each reactor has at most 64). `1` expands one slice per pass, which holds such a request to a depth of 1-2 per reactor. |
 | `range_batch_slices` | int (**>= 0**) | 8 | Most slices one queue entry holds when a host-only multi-range read (a whole-split prefetch, the DuckDB-native decoder's column-chunk set) is dispatched to the uring reactors: a local read does not prefer bulk I/O, so the read is queued as several entries of at most this many slices instead of one per reactor. Reads with a device destination are never split. `0` = no split. |

@@ -439,6 +439,10 @@ static void from_yaml(const YAML::Node& node, cucascade::io::uring::config& opt)
 {
   yaml::reader r(node, "uring");
   read_count(r, "reactors_per_gpu", opt.reactors_per_gpu);
+  r.optional("numa_local_staging", opt.numa_local_staging);
+  if (opt.numa_local_staging && opt.reactors_per_gpu == 0) {
+    throw std::runtime_error("'uring.numa_local_staging' requires 'uring.reactors_per_gpu' > 0");
+  }
   {
     // Preserve whether the value was named: an explicit value may equal the
     // struct default, and cuCascade's readahead resolution tells the two apart.
