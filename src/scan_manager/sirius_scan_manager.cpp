@@ -1493,9 +1493,10 @@ sirius_scan_manager::sirius_scan_manager(
     case scan_manager::io_backend::native:
       _io_ctx = make_default_ioctx(cucascade::io::io_context_type::uring);
       SIRIUS_LOG_DEBUG(
-        "[sirius_scan_manager] default io context: uring n_reactors={} slices_per_pass={} "
-        "range_batch_slices={}",
+        "[sirius_scan_manager] default io context: uring shared_n_reactors={} reactors_per_gpu={} "
+        "slices_per_pass={} range_batch_slices={}",
         _config.uring_n_reactors,
+        _config.uring.reactors_per_gpu,
         _config.uring.slices_per_pass,
         _config.uring.range_batch_slices);
       break;

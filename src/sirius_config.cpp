@@ -438,6 +438,7 @@ static void from_yaml(const YAML::Node& node, cucascade::io::rest::config& opt)
 static void from_yaml(const YAML::Node& node, cucascade::io::uring::config& opt)
 {
   yaml::reader r(node, "uring");
+  read_count(r, "reactors_per_gpu", opt.reactors_per_gpu);
   {
     // Preserve whether the value was named: an explicit value may equal the
     // struct default, and cuCascade's readahead resolution tells the two apart.
