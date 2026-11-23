@@ -1,7 +1,8 @@
 # NVL4 SF3000 SNMG reproducer
 
-The standard TPC-H harness measured **182.81 s stock → 132.53 s patched**
-on invocation 3 (sum of Q1–Q22, 27.5% lower latency).
+The five-iteration standard TPC-H run measured **186.53 s stock →
+132.09 s patched** (median of suite totals for invocations 2–5,
+29.2% lower latency).
 
 From the Sirius root, switch to the reproducer branch:
 
@@ -40,7 +41,7 @@ env -u SIRIUS_BUILD_PATH -u SIRIUS_GDS -u SIRIUS_PRIORITY_DOWNSTREAM_FIRST \
     SIRIUS_PRE_SQL='SET enable_duckdb_fallback = false' \
     pixi run python test/tpch_performance/performance_test.py \
     --input /scratch/sirius/datasets/tpch_sf3000 \
-    --data-source parquet --scale-factor 3000 --engine gpu --iterations 3 --pin none \
+    --data-source parquet --scale-factor 3000 --engine gpu --iterations 5 --pin none \
     --config test/tpch_performance/nvl4-snmg-repro.yaml \
     --output /var/tmp/nvl4-snmg-repro --name full-stack-ab-patched
 ```
@@ -50,6 +51,26 @@ build at Sirius `ef7eb295` and its pinned cuCascade `9e6cdc8f`. Use a copy
 of the tuned YAML with only `executor.scan_manager.uring` removed, and
 change `--name` to `full-stack-ab-stock`.
 
-In each output's `csv/runtimes.csv`, sum Q1–Q22 at `iteration=2` for the
-third invocation. The command reproduces the setup, not the exact seconds:
-GPFS cache state and contention are not controlled.
+Compare matching invocations using the `TOTAL` rows in the two
+`csv/runtimes.csv` files. Pass the stock file first. The CSV uses
+zero-based iteration numbers; the table prints 1–5.
+
+```bash
+awk -F, '
+    BEGIN { printf "%-10s %10s %10s %12s\n", "Invocation", "Stock (s)", "Patched (s)", "Change" }
+    $2 != "TOTAL" { next }
+    NR == FNR { stock[$3] = $4; next }
+    { patched[$3] = $4 }
+    END {
+        for (i = 0; i < 5; i++) {
+            if (stock[i] <= 0 || patched[i] <= 0) exit 1
+            printf "%-10d %10.2f %10.2f %+11.1f%%\n", i+1, stock[i], patched[i], 100*(patched[i]/stock[i]-1)
+        }
+    }
+' /path/to/stock/csv/runtimes.csv /path/to/patched/csv/runtimes.csv
+```
+
+Negative change means lower latency. For per-query deltas, compare the same
+`query` and `iteration` in both files. Keep invocation 1 separate when
+summarizing repeat performance. GPFS cache state and contention are not
+controlled, so expect timing variation.
