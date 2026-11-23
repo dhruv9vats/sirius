@@ -3,8 +3,32 @@
 The standard TPC-H harness measured **182.81 s stock → 132.53 s patched**
 on invocation 3 (sum of Q1–Q22, 27.5% lower latency).
 
-With `repro/nvl4-snmg-sf3000` checked out in Sirius and its `cucascade`
-submodule, initialize the other build submodules and build with
+From the Sirius root, switch to the reproducer branch:
+
+```bash
+git switch repro/nvl4-snmg-sf3000
+```
+
+If `cucascade` is not initialized yet, point it at the fork before cloning:
+
+```bash
+git config --local submodule.cucascade.url https://github.com/dhruv9vats/cuCascade.git
+git submodule update --init --checkout -- cucascade
+```
+
+Check out the cuCascade branch explicitly:
+
+```bash
+git -C cucascade fetch https://github.com/dhruv9vats/cuCascade.git repro/nvl4-snmg-sf3000
+git -C cucascade switch -c repro/nvl4-snmg-sf3000 FETCH_HEAD
+git submodule status -- cucascade
+```
+
+If the local cuCascade branch already exists, omit `-c` and `FETCH_HEAD`.
+The status should show `db020514…` without a leading `+`, confirming that
+the checkout matches Sirius's pin.
+
+Initialize the other build submodules and build with
 `pixi run make TEST_BUILD_TARGET=`. On an idle four-GPU NVL4 node, run this
 from the Sirius root with the [tuned YAML](nvl4-snmg-repro.yaml):
 
